@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CORTEX — segundo cérebro</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500&display=swap');
+
+  :root{
+    --void: #05050a;
+    --void-2: #0a0b16;
+    --core: #8c7bff;
+    --core-soft: #6a5cff;
+    --synapse: #52e8d0;
+    --branch: #5b7dff;
+    --text: #eef0f8;
+    --text-dim: rgba(238,240,248,0.52);
+  }
+
+  *{ margin:0; padding:0; box-sizing:border-box; }
+
+  html,body{
+    width:100%; height:100%;
+    background: radial-gradient(120% 90% at 50% 38%, var(--void-2) 0%, var(--void) 65%);
+    overflow:hidden;
+    font-family:'Inter', sans-serif;
+  }
+
+  canvas{ position:absolute; inset:0; display:block; }
+
+  .vignette{
+    position:absolute; inset:0;
+    pointer-events:none;
+    background:
+      radial-gradient(120% 90% at 50% 50%, transparent 40%, rgba(0,0,0,0.55) 100%);
+    z-index:2;
+  }
+
+  .grain{
+    position:absolute; inset:0;
+    pointer-events:none;
+    opacity:0.035;
+    z-index:3;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .hud{
+    position:absolute; inset:0;
+    z-index:4;
+    pointer-events:none;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-end;
+    padding-bottom:8vh;
+  }
+
+  .wordmark{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:600;
+    font-size:clamp(28px, 5vw, 46px);
+    letter-spacing:0.42em;
+    color:var(--text);
+    text-indent:0.42em;
+    opacity:0;
+    transform:translateY(14px);
+    animation: riseIn 1.4s cubic-bezier(.16,1,.3,1) 0.3s forwards;
+  }
+
+  .tagline{
+    margin-top:14px;
+    font-weight:300;
+    font-size:clamp(12px, 1.6vw, 15px);
+    letter-spacing:0.04em;
+    color:var(--text-dim);
+    opacity:0;
+    animation: riseIn 1.4s cubic-bezier(.16,1,.3,1) 0.9s forwards;
+  }
+
+  .badge{
+    position:absolute;
+    top:6vh; left:50%;
+    transform:translateX(-50%);
+    z-index:4;
+    pointer-events:none;
+    font-family:'Inter', sans-serif;
+    font-weight:500;
+    font-size:11px;
+    letter-spacing:0.28em;
+    color:var(--text-dim);
+    opacity:0;
+    animation: riseIn 1.2s cubic-bezier(.16,1,.3,1) 0.1s forwards;
+  }
+
+  .module-label{
+    position:absolute;
+    z-index:4;
+    pointer-events:none;
+    font-family:'Inter', sans-serif;
+    font-weight:500;
+    font-size:12px;
+    letter-spacing:0.18em;
+    text-transform:uppercase;
+    color:var(--text);
+    text-shadow:0 0 12px rgba(140,123,255,0.65), 0 0 2px rgba(0,0,0,0.8);
+    opacity:0;
+    transition:opacity 0.9s ease;
+  }
+
+  @keyframes riseIn{
+    to{ opacity:1; transform:translateY(0); }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="stage"></canvas>
+<div class="vignette"></div>
+<div class="grain"></div>
+
+<div class="badge">CORTEX · SEGUNDO CÉREBRO</div>
+
+<div id="labelLayer"></div>
+
+<div class="hud">
+  <div class="wordmark">CORTEX</div>
+  <div class="tagline">o sistema operacional da sua vida</div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  const labelLayer = document.getElementById('labelLayer');
+
+  let W, H, DPR;
+  function resize(){
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ---------- utils ----------
+  const TAU = Math.PI * 2;
+  const rand = (a,b) => a + Math.random()*(b-a);
+  const randInt = (a,b) => Math.floor(rand(a,b+1));
+  const lerp = (a,b,t) => a + (b-a)*t;
+
+  // ---------- module identities ----------
+  const MODULES = ['Memória','Conhecimento','Identidade','Visão','Voz','Raciocínio','Automação'];
+
+  // ---------- brain graph construction ----------
+  let cx, cy, baseScale;
+  let branches = [];   // each: {points:[{x,y}], isFork}
+  let allPoints = [];  // unique nodes for rendering (with pulse phase)
+  let leafNodes = [];  // one leaf per top-level branch, carries module label
+
+  function buildBranch(angleBase){
+    const points = [{x:0,y:0, depth:0}];
+    let angle = angleBase + rand(-0.22,0.22);
+    let x=0, y=0;
+    const segments = randInt(4,6);
+    for(let s=1; s<=segments; s++){
+      angle += rand(-0.32,0.32);
+      const segLen = rand(34,72) * (1 - s/(segments+2)*0.25);
+      x += Math.cos(angle)*segLen;
+      y += Math.sin(angle)*segLen;
+      points.push({x, y, depth:s});
+    }
+    return points;
+  }
+
+  function buildFork(mainChain){
+    const forkFrom = randInt(1, mainChain.length-2);
+    const start = mainChain[forkFrom];
+    let angle = Math.atan2(start.y, start.x) + rand(-0.9,0.9);
+    let x = start.x, y = start.y;
+    const chain = mainChain.slice(0, forkFrom+1);
+    const segments = randInt(2,3);
+    for(let s=1; s<=segments; s++){
+      angle += rand(-0.4,0.4);
+      const segLen = rand(24,46);
+      x += Math.cos(angle)*segLen;
+      y += Math.sin(angle)*segLen;
+      chain.push({x,y, depth: forkFrom+s});
+    }
+    return chain;
+  }
+
+  function buildGraph(){
+    branches = [];
+    allPoints = [];
+    leafNodes = [];
+    const n = MODULES.length;
+    const pointSet = new Set();
+
+    for(let i=0;i<n;i++){
+      const angleBase = (i/n)*TAU - Math.PI/2;
+      const main = buildBranch(angleBase);
+      branches.push({points:main});
+      leafNodes.push({pt: main[main.length-1], label: MODULES[i]});
+
+      const forkCount = randInt(1,2);
+      for(let f=0; f<forkCount; f++){
+        const fork = buildFork(main);
+        branches.push({points:fork});
+      }
+    }
+
+    branches.forEach(b=>{
+      b.points.forEach(p=>{
+        const key = p.x.toFixed(1)+','+p.y.toFixed(1);
+        if(!pointSet.has(key)){
+          pointSet.add(key);
+          p.phase = rand(0, TAU);
+          p.speed = rand(0.6,1.4);
+          allPoints.push(p);
+        }
+      });
+    });
+  }
+
+  buildGraph();
+
+  // ---------- particles traveling the branches ----------
+  const PARTICLE_COUNT = 46;
+  let particles = [];
+  function spawnParticle(){
+    const path = branches[randInt(0, branches.length-1)].points;
+    return {
+      path,
+      t: rand(0, path.length-1.001),
+      speed: rand(0.55, 1.15),
+      hue: Math.random() < 0.5 ? 'synapse' : 'branch'
+    };
+  }
+  for(let i=0;i<PARTICLE_COUNT;i++) particles.push(spawnParticle());
+
+  function pointAt(path, t){
+    let i = Math.floor(t);
+    if(i>=path.length-1) i = path.length-2;
+    const frac = t - i;
+    const a = path[i], b = path[i+1];
+    return { x: lerp(a.x,b.x,frac), y: lerp(a.y,b.y,frac) };
+  }
+
+  // ---------- ambient starfield ----------
+  const STAR_COUNT = 140;
+  let stars = [];
+  function buildStars(){
+    stars = [];
+    for(let i=0;i<STAR_COUNT;i++){
+      stars.push({
+        x: rand(0,W), y: rand(0,H),
+        r: rand(0.4,1.5),
+        phase: rand(0,TAU),
+        speed: rand(0.4,1.0)
+      });
+    }
+  }
+  buildStars();
+  window.addEventListener('resize', buildStars);
+
+  // ---------- mouse parallax ----------
+  let mouseX = 0, mouseY = 0, targetX = 0, targetY = 0;
+  window.addEventListener('mousemove', e=>{
+    targetX = (e.clientX - W/2) / (W/2);
+    targetY = (e.clientY - H/2) / (H/2);
+  });
+  window.addEventListener('touchmove', e=>{
+    if(!e.touches[0]) return;
+    targetX = (e.touches[0].clientX - W/2) / (W/2);
+    targetY = (e.touches[0].clientY - H/2) / (H/2);
+  }, {passive:true});
+
+  // ---------- label cycling ----------
+  const labelEls = [];
+  MODULES.forEach(()=>{
+    const el = document.createElement('div');
+    el.className = 'module-label';
+    document.body.appendChild(el);
+    labelEls.push(el);
+  });
+  let activeLabel = -1;
+  let labelTimer = 0;
+  const LABEL_INTERVAL = 2600;
+
+  function updateLabels(dt, scale){
+    labelTimer += dt;
+    if(labelTimer > LABEL_INTERVAL){
+      labelTimer = 0;
+      if(activeLabel >= 0) labelEls[activeLabel].style.opacity = 0;
+      activeLabel = (activeLabel + 1) % leafNodes.length;
+      const leaf = leafNodes[activeLabel];
+      const screenX = cx + leaf.pt.x*scale;
+      const screenY = cy + leaf.pt.y*scale;
+      const el = labelEls[activeLabel];
+      el.style.left = screenX + 'px';
+      el.style.top = screenY + 'px';
+      el.style.transform = 'translate(-50%, -140%)';
+      el.style.opacity = 0;
+      requestAnimationFrame(()=>{ el.style.opacity = 1; });
+      setTimeout(()=>{ if(activeLabel < labelEls.length) el.style.opacity = 0; }, LABEL_INTERVAL - 300);
+    }
+  }
+
+  // ---------- render loop ----------
+  let last = performance.now();
+  let t0 = last;
+
+  function frame(now){
+    const dt = Math.min(now - last, 48);
+    last = now;
+    const elapsed = (now - t0) / 1000;
+
+    mouseX = lerp(mouseX, targetX, 0.04);
+    mouseY = lerp(mouseY, targetY, 0.04);
+
+    cx = W/2 + mouseX * 26;
+    cy = H*0.44 + mouseY * 20;
+    baseScale = Math.min(W,H) / 720;
+
+    // trailing fade
+    ctx.fillStyle = 'rgba(5,5,10,0.22)';
+    ctx.fillRect(0,0,W,H);
+
+    // stars
+    stars.forEach(s=>{
+      const tw = 0.35 + 0.65*Math.abs(Math.sin(elapsed*s.speed + s.phase));
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(230,234,255,${0.15+tw*0.5})`;
+      ctx.arc(s.x, s.y, s.r, 0, TAU);
+      ctx.fill();
+    });
+
+    // branch lines
+    branches.forEach(b=>{
+      const pts = b.points;
+      for(let i=0;i<pts.length-1;i++){
+        const a = pts[i], c = pts[i+1];
+        const ax = cx + a.x*baseScale, ay = cy + a.y*baseScale;
+        const bx = cx + c.x*baseScale, by = cy + c.y*baseScale;
+        const alpha = Math.max(0.06, 0.34 - i*0.045);
+        const width = Math.max(0.5, 2.1 - i*0.28);
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(91,125,255,${alpha})`;
+        ctx.lineWidth = width;
+        ctx.moveTo(ax,ay);
+        ctx.lineTo(bx,by);
+        ctx.stroke();
+      }
+    });
+
+    // node glow points
+    allPoints.forEach(p=>{
+      const px = cx + p.x*baseScale, py = cy + p.y*baseScale;
+      const pulse = 0.5 + 0.5*Math.sin(elapsed*p.speed + p.phase);
+      const dist = Math.hypot(p.x,p.y);
+      const sizeFalloff = Math.max(0.35, 1 - dist/520);
+      const r = (1.1 + pulse*1.3) * sizeFalloff;
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(200,210,255,${0.28 + pulse*0.4})`;
+      ctx.shadowColor = 'rgba(140,123,255,0.9)';
+      ctx.shadowBlur = 6 + pulse*6;
+      ctx.arc(px, py, Math.max(r,0.4), 0, TAU);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    });
+
+    // traveling particles
+    particles.forEach(p=>{
+      p.t += p.speed * (dt/1000) * 1.6;
+      if(p.t >= p.path.length-1){
+        Object.assign(p, spawnParticle());
+      }
+      const pos = pointAt(p.path, p.t);
+      const px = cx + pos.x*baseScale, py = cy + pos.y*baseScale;
+      const color = p.hue === 'synapse' ? '82,232,208' : '140,123,255';
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(${color},0.95)`;
+      ctx.shadowColor = `rgba(${color},1)`;
+      ctx.shadowBlur = 10;
+      ctx.arc(px, py, 1.7, 0, TAU);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    });
+
+    // core
+    const corePulse = 0.5 + 0.5*Math.sin(elapsed*1.4);
+    const coreR = 9 + corePulse*4;
+
+    // sonar rings
+    const ringT = (elapsed*0.35) % 1;
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(140,123,255,${(1-ringT)*0.35})`;
+    ctx.lineWidth = 1.2;
+    ctx.arc(cx, cy, coreR + ringT*70, 0, TAU);
+    ctx.stroke();
+
+    const grad = ctx.createRadialGradient(cx,cy,0,cx,cy,coreR*3.2);
+    grad.addColorStop(0, 'rgba(220,215,255,0.95)');
+    grad.addColorStop(0.35, 'rgba(140,123,255,0.55)');
+    grad.addColorStop(1, 'rgba(140,123,255,0)');
+    ctx.beginPath();
+    ctx.fillStyle = grad;
+    ctx.arc(cx, cy, coreR*3.2, 0, TAU);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.shadowColor = 'rgba(180,170,255,1)';
+    ctx.shadowBlur = 18;
+    ctx.arc(cx, cy, coreR*0.55, 0, TAU);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    updateLabels(dt, baseScale);
+
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
