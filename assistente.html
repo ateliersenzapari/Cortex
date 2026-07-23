@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>CORTEX</title>
+<style>
+  :root{
+    --void: #05050a;
+    --void-2: #0a0b16;
+    --core: #8c7bff;
+    --text: #eef0f8;
+    --text-dim: rgba(238,240,248,0.55);
+    --ok: #52e8d0;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+  html,body{
+    width:100%; height:100%;
+    background: radial-gradient(120% 90% at 50% 38%, var(--void-2) 0%, var(--void) 65%);
+    overflow:hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  }
+  canvas{ position:absolute; inset:0; display:block; }
+  .vignette{
+    position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(120% 90% at 50% 50%, transparent 38%, rgba(0,0,0,0.6) 100%);
+    z-index:2;
+  }
+  .top{
+    position:absolute; top:0; left:0; right:0;
+    z-index:5; pointer-events:none;
+    display:flex; align-items:center; justify-content:center;
+    padding-top: max(18px, env(safe-area-inset-top));
+    flex-direction:column;
+  }
+  .badge{
+    display:flex; align-items:center; gap:6px;
+    font-size:11px; letter-spacing:0.16em; color:var(--text-dim);
+    font-weight:500;
+  }
+  .badge .dot{
+    width:6px; height:6px; border-radius:50%; background:var(--ok);
+    box-shadow:0 0 6px var(--ok);
+  }
+  .wordmark{
+    margin-top:6px;
+    font-weight:600; font-size:20px; letter-spacing:0.3em; text-indent:0.3em;
+    color:var(--text);
+  }
+
+  .status{
+    position:absolute; z-index:5; pointer-events:none;
+    left:50%; top: calc(96px + env(safe-area-inset-top));
+    transform: translateX(-50%);
+    text-align:center;
+    font-size:12px; letter-spacing:0.1em; color:var(--text);
+    background: rgba(8,8,16,0.55);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    padding: 7px 16px;
+    border-radius: 20px;
+    white-space:nowrap;
+    transition: opacity 0.3s ease;
+  }
+
+  .transcript{
+    position:absolute; z-index:5;
+    left:0; right:0; bottom: calc(150px + env(safe-area-inset-bottom));
+    max-height: 22vh;
+    overflow-y:auto;
+    padding: 0 22px;
+    display:flex; flex-direction:column; gap:8px;
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black 24px);
+    mask-image: linear-gradient(to bottom, transparent, black 24px);
+  }
+  .msg{
+    max-width: 84%;
+    font-size:14px; line-height:1.4;
+    padding:9px 13px;
+    border-radius:14px;
+    animation: riseIn 0.4s ease forwards;
+  }
+  .msg.user{
+    align-self:flex-end;
+    background: rgba(140,123,255,0.18);
+    color: var(--text);
+    border-bottom-right-radius:4px;
+  }
+  .msg.cortex{
+    align-self:flex-start;
+    background: rgba(82,232,208,0.10);
+    color: var(--text);
+    border-bottom-left-radius:4px;
+  }
+  @keyframes riseIn{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+
+  .bottom{
+    position:absolute; z-index:6;
+    left:0; right:0; bottom:0;
+    display:flex; flex-direction:column; align-items:center;
+    gap:14px;
+    padding-bottom: max(34px, env(safe-area-inset-bottom));
+  }
+
+  .mic-wrap{ position:relative; width:84px; height:84px; }
+  .mic-ring{
+    position:absolute; inset:0; border-radius:50%;
+    border:1px solid rgba(140,123,255,0.35);
+    animation: ringPulse 2.4s ease-out infinite;
+    opacity:0;
+  }
+  .mic-ring.active{ opacity:1; }
+  @keyframes ringPulse{
+    0%{ transform:scale(0.9); opacity:0.6; }
+    100%{ transform:scale(1.6); opacity:0; }
+  }
+  .mic-btn{
+    position:absolute; inset:6px;
+    border-radius:50%;
+    border:none;
+    background: radial-gradient(circle at 35% 30%, rgba(200,190,255,0.9), rgba(108,92,255,0.55) 60%, rgba(90,80,200,0.35));
+    box-shadow: 0 0 30px rgba(140,123,255,0.55), inset 0 0 14px rgba(255,255,255,0.25);
+    display:flex; align-items:center; justify-content:center;
+    color:white;
+    cursor:pointer;
+    transition: transform 0.15s ease, box-shadow 0.3s ease;
+  }
+  .mic-btn:active{ transform:scale(0.94); }
+  .mic-btn.listening{
+    background: radial-gradient(circle at 35% 30%, #d7ffef, #52e8d0 60%, #2fae9a);
+    box-shadow: 0 0 40px rgba(82,232,208,0.75), inset 0 0 14px rgba(255,255,255,0.35);
+  }
+  .mic-btn.thinking{
+    box-shadow: 0 0 26px rgba(140,123,255,0.45), inset 0 0 14px rgba(255,255,255,0.2);
+  }
+  .mic-btn svg{ width:30px; height:30px; }
+
+  .hint{
+    font-size:11px; color:var(--text-dim); letter-spacing:0.04em;
+    max-width: 80vw; text-align:center;
+  }
+
+  .text-fallback{
+    position:absolute; z-index:6;
+    left:16px; right:16px; bottom: calc(150px + env(safe-area-inset-bottom));
+    display:flex; gap:8px;
+    transform: translateY(20px);
+    opacity:0; pointer-events:none;
+    transition: all 0.25s ease;
+  }
+  .text-fallback.open{
+    transform: translateY(0);
+    opacity:1;
+    pointer-events:auto;
+  }
+  .text-fallback input{
+    flex:1;
+    background: rgba(20,20,32,0.85);
+    border:1px solid rgba(140,123,255,0.4);
+    border-radius:20px;
+    padding:12px 16px;
+    color:var(--text);
+    font-size:15px;
+    outline:none;
+  }
+  .text-fallback button{
+    background: var(--core);
+    color:white; border:none; border-radius:20px;
+    padding:0 18px; font-size:14px; font-weight:600;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="stage"></canvas>
+<div class="vignette"></div>
+
+<div class="top">
+  <div class="badge"><span class="dot"></span>ONLINE</div>
+  <div class="wordmark">CORTEX</div>
+</div>
+
+<div class="status" id="status">toque no microfone e fale</div>
+
+<div class="transcript" id="transcript"></div>
+
+<div class="text-fallback" id="textFallback">
+  <input type="text" id="textInput" placeholder="fale ou digite..." autocomplete="off" />
+  <button id="textSend">Enviar</button>
+</div>
+
+<div class="bottom">
+  <div class="mic-wrap">
+    <div class="mic-ring" id="ring1"></div>
+    <div class="mic-ring" id="ring2" style="animation-delay:0.6s"></div>
+    <button class="mic-btn" id="micBtn" aria-label="Falar com o Cortex">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+        <line x1="12" y1="19" x2="12" y2="23"></line>
+        <line x1="8" y1="23" x2="16" y2="23"></line>
+      </svg>
+    </button>
+  </div>
+  <div class="hint" id="hint">Cortex ainda não acessa e-mail, agenda ou arquivos reais — isso vem na próxima fase.</div>
+</div>
+
+<script>
+(function(){
+  // =========================================================
+  // CONFIG
+  // =========================================================
+  const API_URL = 'https://senza-pari.app.n8n.cloud/webhook/cortex-comando';
+  const SESSION_KEY = 'cortex_session_id';
+  let sessionId = localStorage.getItem(SESSION_KEY);
+  if(!sessionId){
+    sessionId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+    localStorage.setItem(SESSION_KEY, sessionId);
+  }
+
+  // =========================================================
+  // VISUAL (adapted from the CORTEX brand animation)
+  // =========================================================
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  const glowCanvas = document.createElement('canvas');
+  const glowCtx = glowCanvas.getContext('2d');
+
+  let W, H, DPR;
+  function resize(){
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W * DPR; canvas.height = H * DPR;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    glowCanvas.width = W * DPR; glowCanvas.height = H * DPR;
+    glowCtx.setTransform(DPR,0,0,DPR,0,0);
+    glowCtx.lineCap = 'round'; glowCtx.lineJoin = 'round';
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const TAU = Math.PI * 2;
+  const rand = (a,b) => a + Math.random()*(b-a);
+  const randInt = (a,b) => Math.floor(rand(a,b+1));
+  const lerp = (a,b,t) => a + (b-a)*t;
+  const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+
+  function hslToRgbString(h, s, l){
+    h = ((h % 360) + 360) % 360;
+    const c = (1 - Math.abs(2*l - 1)) * s;
+    const x = c * (1 - Math.abs((h/60) % 2 - 1));
+    const m = l - c/2;
+    let r=0,g=0,b=0;
+    if(h<60){ r=c; g=x; b=0; } else if(h<120){ r=x; g=c; b=0; }
+    else if(h<180){ r=0; g=c; b=x; } else if(h<240){ r=0; g=x; b=c; }
+    else if(h<300){ r=x; g=0; b=c; } else { r=c; g=0; b=x; }
+    r = Math.round((r+m)*255); g = Math.round((g+m)*255); b = Math.round((b+m)*255);
+    return `${r},${g},${b}`;
+  }
+
+  const MODULE_COUNT = 7;
+  const HUE_START = 258, HUE_END = 170;
+  function hueForIndex(i, n){ return lerp(HUE_START, HUE_END, i/(n-1)); }
+
+  let cx, cy, baseScale;
+  const MAX_LOCAL_RADIUS = 340;
+  let branches = [];
+  let allPoints = [];
+
+  function buildBranch(angleBase){
+    const points = [{x:0,y:0, depth:0}];
+    let angle = angleBase + rand(-0.2,0.2);
+    let x=0, y=0;
+    const segments = randInt(6,9);
+    for(let s=1; s<=segments; s++){
+      angle += rand(-0.24,0.24);
+      const segLen = rand(30,60) * (1 - s/(segments+2)*0.22);
+      x += Math.cos(angle)*segLen; y += Math.sin(angle)*segLen;
+      points.push({x, y, depth:s});
+    }
+    return points;
+  }
+  function buildFork(mainChain, segRange, lenRange){
+    const forkFrom = randInt(1, mainChain.length-2);
+    const start = mainChain[forkFrom];
+    let angle = Math.atan2(start.y, start.x) + rand(-0.85,0.85);
+    let x = start.x, y = start.y;
+    const chain = mainChain.slice(0, forkFrom+1);
+    const segments = randInt(segRange[0], segRange[1]);
+    for(let s=1; s<=segments; s++){
+      angle += rand(-0.3,0.3);
+      const segLen = rand(lenRange[0], lenRange[1]);
+      x += Math.cos(angle)*segLen; y += Math.sin(angle)*segLen;
+      chain.push({x,y, depth: forkFrom+s});
+    }
+    return chain;
+  }
+  function buildGraph(){
+    branches = []; allPoints = [];
+    const n = MODULE_COUNT;
+    const pointMap = new Map();
+    function registerPoints(pts, hue, rgb){
+      pts.forEach(p=>{
+        const key = p.x.toFixed(1)+','+p.y.toFixed(1);
+        if(!pointMap.has(key)){
+          p.phase = rand(0, TAU); p.speed = rand(0.6,1.4); p.hue = hue; p.rgb = rgb;
+          pointMap.set(key, p); allPoints.push(p);
+        }
+      });
+    }
+    for(let i=0;i<n;i++){
+      const angleBase = (i/n)*TAU - Math.PI/2;
+      const hue = hueForIndex(i, n);
+      const rgb = hslToRgbString(hue, 0.82, 0.7);
+      const main = buildBranch(angleBase);
+      branches.push({points:main, hue, rgb});
+      registerPoints(main, hue, rgb);
+      const forkCount = randInt(2,3);
+      for(let f=0; f<forkCount; f++){
+        const forkHue = hue + rand(-7,7);
+        const forkRgb = hslToRgbString(forkHue, 0.8, 0.68);
+        const fork = buildFork(main, [3,5], [20,40]);
+        branches.push({points:fork, hue:forkHue, rgb:forkRgb});
+        registerPoints(fork, forkHue, forkRgb);
+        if(Math.random() < 0.4){
+          const twig = buildFork(fork, [2,3], [12,24]);
+          branches.push({points:twig, hue:forkHue, rgb:forkRgb});
+          registerPoints(twig, forkHue, forkRgb);
+        }
+      }
+    }
+  }
+  buildGraph();
+
+  const PARTICLE_COUNT = 60;
+  let particles = [];
+  function spawnParticle(){
+    const branch = branches[randInt(0, branches.length-1)];
+    const isSpark = Math.random() < 0.16;
+    return {
+      path: branch.points,
+      rgb: isSpark ? '200,255,240' : branch.rgb,
+      isSpark,
+      t: rand(0, branch.points.length-1.001),
+      speed: rand(0.5, 1.1),
+      trail: []
+    };
+  }
+  for(let i=0;i<PARTICLE_COUNT;i++) particles.push(spawnParticle());
+
+  function pointAt(path, t){
+    t = clamp(t, 0, path.length - 1.0001);
+    let i = Math.floor(t);
+    if(i>=path.length-1) i = path.length-2;
+    const frac = t - i;
+    const a = path[i], b = path[i+1];
+    return { x: lerp(a.x,b.x,frac), y: lerp(a.y,b.y,frac) };
+  }
+
+  let starsFar = [], starsNear = [];
+  function buildStars(){
+    starsFar = []; starsNear = [];
+    for(let i=0;i<110;i++) starsFar.push({ x: rand(0,W), y: rand(0,H), r: rand(0.3,1.0), phase: rand(0,TAU), speed: rand(0.3,0.8), parallax: 6 });
+    for(let i=0;i<36;i++) starsNear.push({ x: rand(0,W), y: rand(0,H), r: rand(0.8,1.9), phase: rand(0,TAU), speed: rand(0.5,1.1), parallax: 18 });
+  }
+  buildStars();
+  window.addEventListener('resize', buildStars);
+
+  const NEBULAE = [
+    { xf:0.22, yf:0.28, rf:0.55, rgb:'140,123,255', amp: 26, speed: 0.06, ph: 0 },
+    { xf:0.80, yf:0.68, rf:0.50, rgb:'82,232,208',  amp: 30, speed: 0.05, ph: 2.1 },
+    { xf:0.72, yf:0.16, rf:0.38, rgb:'91,125,255',  amp: 22, speed: 0.07, ph: 4.2 },
+  ];
+
+  let mouseX = 0, mouseY = 0, targetX = 0, targetY = 0;
+  window.addEventListener('mousemove', e=>{ targetX = (e.clientX - W/2)/(W/2); targetY = (e.clientY - H/2)/(H/2); });
+
+  // ---- reactive state machine (idle / listening / thinking / speaking) ----
+  let uiState = 'idle';
+  let energy = 0.28, energyTarget = 0.28;
+  function setUiState(s){
+    uiState = s;
+    energyTarget = s === 'idle' ? 0.28 : s === 'listening' ? 0.85 : s === 'thinking' ? 0.6 : 1.0;
+  }
+
+  function drawBranches(c, glow){
+    branches.forEach(b=>{
+      const pts = b.points;
+      for(let i=0;i<pts.length-1;i++){
+        const a = pts[i], p1 = pts[i+1];
+        const ax = cx + a.x*baseScale, ay = cy + a.y*baseScale;
+        const bx = cx + p1.x*baseScale, by = cy + p1.y*baseScale;
+        const alpha = Math.max(0.05, 0.42 - i*0.05) * (0.7 + energy*0.5);
+        const width = Math.max(0.6, 2.5 - i*0.28);
+        c.beginPath();
+        c.strokeStyle = glow ? `rgba(${b.rgb},${alpha*0.9})` : `rgba(${b.rgb},${alpha})`;
+        c.lineWidth = glow ? width*2.2 : width;
+        c.moveTo(ax,ay); c.lineTo(bx,by); c.stroke();
+      }
+    });
+  }
+  function drawNodes(c, glow){
+    allPoints.forEach(p=>{
+      const px = cx + p.x*baseScale, py = cy + p.y*baseScale;
+      const pulse = 0.5 + 0.5*Math.sin(elapsedGlobal*p.speed*(1+energy*0.8) + p.phase);
+      const dist = Math.hypot(p.x,p.y);
+      const sizeFalloff = Math.max(0.35, 1 - dist/560);
+      const r = (1.2 + pulse*1.4) * sizeFalloff;
+      c.beginPath();
+      c.fillStyle = glow ? `rgba(${p.rgb},${(0.45 + pulse*0.4)})` : `rgba(230,232,255,${0.32 + pulse*0.45})`;
+      c.arc(px, py, glow ? Math.max(r*2.1,1) : Math.max(r,0.4), 0, TAU);
+      c.fill();
+    });
+  }
+  function drawParticles(c, glow){
+    particles.forEach(p=>{
+      const px = cx + p.pos.x*baseScale, py = cy + p.pos.y*baseScale;
+      if(!glow && p.trail.length > 1){
+        for(let i=1;i<p.trail.length;i++){
+          const t0 = p.trail[i-1], t1 = p.trail[i];
+          const a0 = cx + t0.x*baseScale, b0 = cy + t0.y*baseScale;
+          const a1 = cx + t1.x*baseScale, b1 = cy + t1.y*baseScale;
+          const alpha = (i/p.trail.length) * 0.45;
+          c.beginPath();
+          c.strokeStyle = `rgba(${p.rgb},${alpha})`;
+          c.lineWidth = p.isSpark ? 1.6 : 1.1;
+          c.moveTo(a0,b0); c.lineTo(a1,b1); c.stroke();
+        }
+      }
+      const size = (p.isSpark ? 2.1 : 1.7) * (1 + energy*0.3);
+      c.beginPath();
+      c.fillStyle = glow ? `rgba(${p.rgb},0.85)` : `rgba(${p.rgb},0.95)`;
+      c.arc(px, py, glow ? size*2.3 : size, 0, TAU);
+      c.fill();
+    });
+  }
+  function drawCore(c, glow, ringT){
+    const corePulse = 0.5 + 0.5*Math.sin(elapsedGlobal*(1.2 + energy*2.2));
+    const coreR = 10 + corePulse*(5 + energy*10);
+    if(glow){
+      const grad = c.createRadialGradient(cx,cy,0,cx,cy,coreR*4.2);
+      grad.addColorStop(0, 'rgba(225,220,255,0.9)');
+      grad.addColorStop(0.35, 'rgba(140,123,255,0.5)');
+      grad.addColorStop(1, 'rgba(140,123,255,0)');
+      c.beginPath(); c.fillStyle = grad; c.arc(cx, cy, coreR*4.2, 0, TAU); c.fill();
+      return;
+    }
+    [0, 0.5].forEach(offset=>{
+      const t = (ringT + offset) % 1;
+      c.beginPath();
+      c.strokeStyle = `rgba(140,123,255,${(1-t)*0.38})`;
+      c.lineWidth = 1.2;
+      c.arc(cx, cy, coreR + t*(70+energy*40), 0, TAU);
+      c.stroke();
+    });
+    const grad = c.createRadialGradient(cx,cy,0,cx,cy,coreR*3.2);
+    grad.addColorStop(0, 'rgba(220,215,255,0.95)');
+    grad.addColorStop(0.35, 'rgba(140,123,255,0.55)');
+    grad.addColorStop(1, 'rgba(140,123,255,0)');
+    c.beginPath(); c.fillStyle = grad; c.arc(cx, cy, coreR*3.2, 0, TAU); c.fill();
+    c.beginPath(); c.fillStyle = 'rgba(255,255,255,0.95)'; c.arc(cx, cy, coreR*0.55, 0, TAU); c.fill();
+  }
+
+  let last = performance.now(); let t0 = last; let elapsedGlobal = 0;
+  function frame(now){
+    const dt = Math.max(0, Math.min(now - last, 48));
+    last = now;
+    elapsedGlobal = (now - t0) / 1000;
+    energy = lerp(energy, energyTarget, 0.06);
+
+    mouseX = lerp(mouseX, targetX, 0.04);
+    mouseY = lerp(mouseY, targetY, 0.04);
+    cx = W/2 + mouseX * 28;
+    cy = H*0.43 + mouseY * 22;
+    const targetR = Math.min(W*0.42, H*0.34);
+    baseScale = targetR / MAX_LOCAL_RADIUS;
+
+    ctx.fillStyle = 'rgba(5,5,10,0.22)';
+    ctx.fillRect(0,0,W,H);
+
+    ctx.globalCompositeOperation = 'lighter';
+    NEBULAE.forEach(n=>{
+      const nx = W*n.xf + Math.sin(elapsedGlobal*n.speed + n.ph)*n.amp;
+      const ny = H*n.yf + Math.cos(elapsedGlobal*n.speed*0.8 + n.ph)*n.amp;
+      const r = Math.max(W,H)*n.rf;
+      const grad = ctx.createRadialGradient(nx,ny,0,nx,ny,r);
+      grad.addColorStop(0, `rgba(${n.rgb},0.10)`);
+      grad.addColorStop(1, `rgba(${n.rgb},0)`);
+      ctx.beginPath(); ctx.fillStyle = grad; ctx.arc(nx, ny, r, 0, TAU); ctx.fill();
+    });
+    ctx.globalCompositeOperation = 'source-over';
+
+    [starsFar, starsNear].forEach(layer=>{
+      layer.forEach(s=>{
+        const tw = 0.35 + 0.65*Math.abs(Math.sin(elapsedGlobal*s.speed + s.phase));
+        const sx = s.x + mouseX*s.parallax, sy = s.y + mouseY*s.parallax;
+        ctx.beginPath(); ctx.fillStyle = `rgba(230,234,255,${0.15+tw*0.5})`; ctx.arc(sx, sy, s.r, 0, TAU); ctx.fill();
+      });
+    });
+
+    const ringT = (elapsedGlobal*(0.35 + energy*0.5)) % 1;
+
+    particles.forEach(p=>{
+      p.t += p.speed * (1 + energy*1.4) * (dt/1000) * 1.6;
+      if(p.t >= p.path.length-1){ Object.assign(p, spawnParticle()); }
+      p.pos = pointAt(p.path, p.t);
+      p.trail.push({x:p.pos.x, y:p.pos.y});
+      if(p.trail.length > 6) p.trail.shift();
+    });
+
+    glowCtx.clearRect(0,0,W,H);
+    glowCtx.globalCompositeOperation = 'lighter';
+    drawBranches(glowCtx, true);
+    drawNodes(glowCtx, true);
+    drawParticles(glowCtx, true);
+    drawCore(glowCtx, true, ringT);
+
+    ctx.save();
+    ctx.filter = 'blur(10px)';
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(glowCanvas, 0, 0, W, H);
+    ctx.restore();
+
+    drawBranches(ctx, false);
+    drawNodes(ctx, false);
+    drawParticles(ctx, false);
+    drawCore(ctx, false, ringT);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // =========================================================
+  // VOICE / CHAT LOGIC
+  // =========================================================
+  const statusEl = document.getElementById('status');
+  const transcriptEl = document.getElementById('transcript');
+  const micBtn = document.getElementById('micBtn');
+  const ring1 = document.getElementById('ring1');
+  const ring2 = document.getElementById('ring2');
+  const hintEl = document.getElementById('hint');
+  const textFallback = document.getElementById('textFallback');
+  const textInput = document.getElementById('textInput');
+  const textSend = document.getElementById('textSend');
+
+  function setStatus(text){ statusEl.textContent = text; }
+
+  function addMessage(role, text){
+    const div = document.createElement('div');
+    div.className = 'msg ' + role;
+    div.textContent = text;
+    transcriptEl.appendChild(div);
+    transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    while(transcriptEl.children.length > 6) transcriptEl.removeChild(transcriptEl.firstChild);
+  }
+
+  function pickPtBrVoice(){
+    const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+    return voices.find(v => /pt[-_]BR/i.test(v.lang)) || voices.find(v => /pt/i.test(v.lang)) || null;
+  }
+
+  function speak(text){
+    if(!('speechSynthesis' in window)){
+      setUiState('idle');
+      setStatus('toque no microfone e fale');
+      return;
+    }
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'pt-BR';
+    const voice = pickPtBrVoice();
+    if(voice) utter.voice = voice;
+    utter.onend = () => {
+      setUiState('idle');
+      setStatus('toque no microfone e fale');
+      micBtn.classList.remove('thinking','listening');
+      ring1.classList.remove('active'); ring2.classList.remove('active');
+    };
+    setUiState('speaking');
+    setStatus('respondendo...');
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utter);
+  }
+
+  async function sendToCortex(message){
+    addMessage('user', message);
+    setUiState('thinking');
+    setStatus('pensando...');
+    micBtn.classList.remove('listening');
+    micBtn.classList.add('thinking');
+    ring1.classList.remove('active'); ring2.classList.remove('active');
+    try{
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mensagem: message, sessionId: sessionId })
+      });
+      if(!res.ok) throw new Error('status ' + res.status);
+      const data = await res.json();
+      const reply = (Array.isArray(data) ? data[0] : data).resposta
+        || (Array.isArray(data) ? data[0] : data).output
+        || 'Desculpa, não consegui pensar em uma resposta agora.';
+      micBtn.classList.remove('thinking');
+      addMessage('cortex', reply);
+      speak(reply);
+    } catch(err){
+      micBtn.classList.remove('thinking');
+      setUiState('idle');
+      setStatus('erro ao conectar — tenta de novo');
+      addMessage('cortex', '(não consegui responder: ' + err.message + ')');
+    }
+  }
+
+  // ---- speech recognition (Chrome/Android) or text-input fallback (Safari/iOS) ----
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognizing = false;
+  let recognizer = null;
+
+  if(SR){
+    recognizer = new SR();
+    recognizer.lang = 'pt-BR';
+    recognizer.interimResults = false;
+    recognizer.maxAlternatives = 1;
+
+    recognizer.onstart = () => {
+      recognizing = true;
+      setUiState('listening');
+      setStatus('ouvindo...');
+      micBtn.classList.add('listening');
+      ring1.classList.add('active'); ring2.classList.add('active');
+    };
+    recognizer.onresult = (e) => {
+      const text = e.results[0][0].transcript;
+      if(text && text.trim()) sendToCortex(text.trim());
+    };
+    recognizer.onerror = () => {
+      recognizing = false;
+      micBtn.classList.remove('listening');
+      ring1.classList.remove('active'); ring2.classList.remove('active');
+      setUiState('idle');
+      setStatus('não consegui ouvir — toca de novo');
+    };
+    recognizer.onend = () => {
+      recognizing = false;
+      micBtn.classList.remove('listening');
+      ring1.classList.remove('active'); ring2.classList.remove('active');
+      if(uiState === 'listening'){ setUiState('idle'); setStatus('toque no microfone e fale'); }
+    };
+
+    micBtn.addEventListener('click', () => {
+      if(recognizing) return;
+      window.speechSynthesis && window.speechSynthesis.cancel();
+      try{ recognizer.start(); } catch(e){ /* already started */ }
+    });
+  } else {
+    // iOS Safari: no SpeechRecognition API. Fall back to a text field —
+    // the device's own keyboard dictation mic types the words in.
+    hintEl.textContent = 'Toque no microfone, depois use o ícone de ditado do teclado do iPhone para falar.';
+    micBtn.addEventListener('click', () => {
+      textFallback.classList.add('open');
+      textInput.focus();
+      setStatus('digite ou dite pelo teclado');
+    });
+    function submitText(){
+      const val = textInput.value.trim();
+      if(!val) return;
+      textInput.value = '';
+      textFallback.classList.remove('open');
+      sendToCortex(val);
+    }
+    textSend.addEventListener('click', submitText);
+    textInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') submitText(); });
+  }
+})();
+</script>
+</body>
+</html>
