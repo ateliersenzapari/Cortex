@@ -15,7 +15,7 @@
     --synapse: #52e8d0;
     --branch: #5b7dff;
     --text: #eef0f8;
-    --text-dim: rgba(238,240,248,0.52);
+    --text-dim: rgba(238,240,248,0.55);
   }
 
   *{ margin:0; padding:0; box-sizing:border-box; }
@@ -33,7 +33,7 @@
     position:absolute; inset:0;
     pointer-events:none;
     background:
-      radial-gradient(120% 90% at 50% 50%, transparent 40%, rgba(0,0,0,0.55) 100%);
+      radial-gradient(120% 90% at 50% 50%, transparent 38%, rgba(0,0,0,0.6) 100%);
     z-index:2;
   }
 
@@ -53,25 +53,26 @@
     flex-direction:column;
     align-items:center;
     justify-content:flex-end;
-    padding-bottom:8vh;
+    padding-bottom:7vh;
   }
 
   .wordmark{
     font-family:'Space Grotesk', sans-serif;
     font-weight:600;
-    font-size:clamp(28px, 5vw, 46px);
-    letter-spacing:0.42em;
+    font-size:clamp(30px, 6.4vw, 48px);
+    letter-spacing:clamp(0.16em, 3.4vw, 0.42em);
     color:var(--text);
-    text-indent:0.42em;
+    text-indent:clamp(0.16em, 3.4vw, 0.42em);
     opacity:0;
     transform:translateY(14px);
     animation: riseIn 1.4s cubic-bezier(.16,1,.3,1) 0.3s forwards;
+    text-shadow: 0 0 40px rgba(140,123,255,0.35);
   }
 
   .tagline{
     margin-top:14px;
     font-weight:300;
-    font-size:clamp(12px, 1.6vw, 15px);
+    font-size:clamp(12px, 2.2vw, 15px);
     letter-spacing:0.04em;
     color:var(--text-dim);
     opacity:0;
@@ -86,9 +87,10 @@
     pointer-events:none;
     font-family:'Inter', sans-serif;
     font-weight:500;
-    font-size:11px;
-    letter-spacing:0.28em;
+    font-size:clamp(9px, 2.6vw, 11px);
+    letter-spacing:0.16em;
     color:var(--text-dim);
+    white-space:nowrap;
     opacity:0;
     animation: riseIn 1.2s cubic-bezier(.16,1,.3,1) 0.1s forwards;
   }
@@ -97,15 +99,27 @@
     position:absolute;
     z-index:4;
     pointer-events:none;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
     font-family:'Inter', sans-serif;
     font-weight:500;
-    font-size:12px;
+    font-size:clamp(11px, 2vw, 13px);
     letter-spacing:0.18em;
     text-transform:uppercase;
     color:var(--text);
-    text-shadow:0 0 12px rgba(140,123,255,0.65), 0 0 2px rgba(0,0,0,0.8);
+    text-shadow:0 0 14px rgba(140,123,255,0.75), 0 0 3px rgba(0,0,0,0.9);
     opacity:0;
     transition:opacity 0.9s ease;
+    white-space:nowrap;
+  }
+
+  .module-label .bar{
+    width:22px;
+    height:2px;
+    margin-top:6px;
+    border-radius:2px;
+    box-shadow:0 0 8px currentColor;
   }
 
   @keyframes riseIn{
@@ -132,7 +146,8 @@
 (function(){
   const canvas = document.getElementById('stage');
   const ctx = canvas.getContext('2d');
-  const labelLayer = document.getElementById('labelLayer');
+  const glowCanvas = document.createElement('canvas');
+  const glowCtx = glowCanvas.getContext('2d');
 
   let W, H, DPR;
   function resize(){
@@ -144,6 +159,14 @@
     canvas.style.width = W + 'px';
     canvas.style.height = H + 'px';
     ctx.setTransform(DPR,0,0,DPR,0,0);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    glowCanvas.width = W * DPR;
+    glowCanvas.height = H * DPR;
+    glowCtx.setTransform(DPR,0,0,DPR,0,0);
+    glowCtx.lineCap = 'round';
+    glowCtx.lineJoin = 'round';
   }
   window.addEventListener('resize', resize);
   resize();
@@ -153,24 +176,45 @@
   const rand = (a,b) => a + Math.random()*(b-a);
   const randInt = (a,b) => Math.floor(rand(a,b+1));
   const lerp = (a,b,t) => a + (b-a)*t;
+  const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+
+  function hslToRgbString(h, s, l){
+    h = ((h % 360) + 360) % 360;
+    const c = (1 - Math.abs(2*l - 1)) * s;
+    const x = c * (1 - Math.abs((h/60) % 2 - 1));
+    const m = l - c/2;
+    let r=0,g=0,b=0;
+    if(h<60){ r=c; g=x; b=0; }
+    else if(h<120){ r=x; g=c; b=0; }
+    else if(h<180){ r=0; g=c; b=x; }
+    else if(h<240){ r=0; g=x; b=c; }
+    else if(h<300){ r=x; g=0; b=c; }
+    else { r=c; g=0; b=x; }
+    r = Math.round((r+m)*255); g = Math.round((g+m)*255); b = Math.round((b+m)*255);
+    return `${r},${g},${b}`;
+  }
 
   // ---------- module identities ----------
   const MODULES = ['Memória','Conhecimento','Identidade','Visão','Voz','Raciocínio','Automação'];
+  const HUE_START = 258; // violet
+  const HUE_END = 170;   // teal
+  function hueForIndex(i, n){ return lerp(HUE_START, HUE_END, i/(n-1)); }
 
   // ---------- brain graph construction ----------
   let cx, cy, baseScale;
-  let branches = [];   // each: {points:[{x,y}], isFork}
+  const MAX_LOCAL_RADIUS = 340;
+  let branches = [];   // each: {points:[{x,y}], hue, rgb}
   let allPoints = [];  // unique nodes for rendering (with pulse phase)
   let leafNodes = [];  // one leaf per top-level branch, carries module label
 
   function buildBranch(angleBase){
     const points = [{x:0,y:0, depth:0}];
-    let angle = angleBase + rand(-0.22,0.22);
+    let angle = angleBase + rand(-0.2,0.2);
     let x=0, y=0;
-    const segments = randInt(4,6);
+    const segments = randInt(6,9);
     for(let s=1; s<=segments; s++){
-      angle += rand(-0.32,0.32);
-      const segLen = rand(34,72) * (1 - s/(segments+2)*0.25);
+      angle += rand(-0.24,0.24);
+      const segLen = rand(30,60) * (1 - s/(segments+2)*0.22);
       x += Math.cos(angle)*segLen;
       y += Math.sin(angle)*segLen;
       points.push({x, y, depth:s});
@@ -178,16 +222,16 @@
     return points;
   }
 
-  function buildFork(mainChain){
+  function buildFork(mainChain, segRange, lenRange){
     const forkFrom = randInt(1, mainChain.length-2);
     const start = mainChain[forkFrom];
-    let angle = Math.atan2(start.y, start.x) + rand(-0.9,0.9);
+    let angle = Math.atan2(start.y, start.x) + rand(-0.85,0.85);
     let x = start.x, y = start.y;
     const chain = mainChain.slice(0, forkFrom+1);
-    const segments = randInt(2,3);
+    const segments = randInt(segRange[0], segRange[1]);
     for(let s=1; s<=segments; s++){
-      angle += rand(-0.4,0.4);
-      const segLen = rand(24,46);
+      angle += rand(-0.3,0.3);
+      const segLen = rand(lenRange[0], lenRange[1]);
       x += Math.cos(angle)*segLen;
       y += Math.sin(angle)*segLen;
       chain.push({x,y, depth: forkFrom+s});
@@ -200,51 +244,70 @@
     allPoints = [];
     leafNodes = [];
     const n = MODULES.length;
-    const pointSet = new Set();
+    const pointMap = new Map();
 
-    for(let i=0;i<n;i++){
-      const angleBase = (i/n)*TAU - Math.PI/2;
-      const main = buildBranch(angleBase);
-      branches.push({points:main});
-      leafNodes.push({pt: main[main.length-1], label: MODULES[i]});
-
-      const forkCount = randInt(1,2);
-      for(let f=0; f<forkCount; f++){
-        const fork = buildFork(main);
-        branches.push({points:fork});
-      }
-    }
-
-    branches.forEach(b=>{
-      b.points.forEach(p=>{
+    function registerPoints(pts, hue, rgb){
+      pts.forEach(p=>{
         const key = p.x.toFixed(1)+','+p.y.toFixed(1);
-        if(!pointSet.has(key)){
-          pointSet.add(key);
+        if(!pointMap.has(key)){
           p.phase = rand(0, TAU);
           p.speed = rand(0.6,1.4);
+          p.hue = hue;
+          p.rgb = rgb;
+          pointMap.set(key, p);
           allPoints.push(p);
         }
       });
-    });
+    }
+
+    for(let i=0;i<n;i++){
+      const angleBase = (i/n)*TAU - Math.PI/2;
+      const hue = hueForIndex(i, n);
+      const rgb = hslToRgbString(hue, 0.82, 0.7);
+
+      const main = buildBranch(angleBase);
+      branches.push({points:main, hue, rgb});
+      leafNodes.push({pt: main[main.length-1], label: MODULES[i], rgb});
+      registerPoints(main, hue, rgb);
+
+      const forkCount = randInt(2,3);
+      for(let f=0; f<forkCount; f++){
+        const forkHue = hue + rand(-7,7);
+        const forkRgb = hslToRgbString(forkHue, 0.8, 0.68);
+        const fork = buildFork(main, [3,5], [20,40]);
+        branches.push({points:fork, hue:forkHue, rgb:forkRgb});
+        registerPoints(fork, forkHue, forkRgb);
+
+        if(Math.random() < 0.4){
+          const twig = buildFork(fork, [2,3], [12,24]);
+          branches.push({points:twig, hue:forkHue, rgb:forkRgb});
+          registerPoints(twig, forkHue, forkRgb);
+        }
+      }
+    }
   }
 
   buildGraph();
 
   // ---------- particles traveling the branches ----------
-  const PARTICLE_COUNT = 46;
+  const PARTICLE_COUNT = 60;
   let particles = [];
   function spawnParticle(){
-    const path = branches[randInt(0, branches.length-1)].points;
+    const branch = branches[randInt(0, branches.length-1)];
+    const isSpark = Math.random() < 0.16;
     return {
-      path,
-      t: rand(0, path.length-1.001),
-      speed: rand(0.55, 1.15),
-      hue: Math.random() < 0.5 ? 'synapse' : 'branch'
+      path: branch.points,
+      rgb: isSpark ? '200,255,240' : branch.rgb,
+      isSpark,
+      t: rand(0, branch.points.length-1.001),
+      speed: rand(0.5, 1.1),
+      trail: []
     };
   }
   for(let i=0;i<PARTICLE_COUNT;i++) particles.push(spawnParticle());
 
   function pointAt(path, t){
+    t = clamp(t, 0, path.length - 1.0001);
     let i = Math.floor(t);
     if(i>=path.length-1) i = path.length-2;
     const frac = t - i;
@@ -252,22 +315,26 @@
     return { x: lerp(a.x,b.x,frac), y: lerp(a.y,b.y,frac) };
   }
 
-  // ---------- ambient starfield ----------
-  const STAR_COUNT = 140;
-  let stars = [];
+  // ---------- ambient starfield (two depth layers) ----------
+  let starsFar = [], starsNear = [];
   function buildStars(){
-    stars = [];
-    for(let i=0;i<STAR_COUNT;i++){
-      stars.push({
-        x: rand(0,W), y: rand(0,H),
-        r: rand(0.4,1.5),
-        phase: rand(0,TAU),
-        speed: rand(0.4,1.0)
-      });
+    starsFar = []; starsNear = [];
+    for(let i=0;i<110;i++){
+      starsFar.push({ x: rand(0,W), y: rand(0,H), r: rand(0.3,1.0), phase: rand(0,TAU), speed: rand(0.3,0.8), parallax: 6 });
+    }
+    for(let i=0;i<36;i++){
+      starsNear.push({ x: rand(0,W), y: rand(0,H), r: rand(0.8,1.9), phase: rand(0,TAU), speed: rand(0.5,1.1), parallax: 18 });
     }
   }
   buildStars();
   window.addEventListener('resize', buildStars);
+
+  // ---------- ambient nebula blobs ----------
+  const NEBULAE = [
+    { xf:0.22, yf:0.28, rf:0.55, rgb:'140,123,255', amp: 26, speed: 0.06, ph: 0 },
+    { xf:0.80, yf:0.68, rf:0.50, rgb:'82,232,208',  amp: 30, speed: 0.05, ph: 2.1 },
+    { xf:0.72, yf:0.16, rf:0.38, rgb:'91,125,255',  amp: 22, speed: 0.07, ph: 4.2 },
+  ];
 
   // ---------- mouse parallax ----------
   let mouseX = 0, mouseY = 0, targetX = 0, targetY = 0;
@@ -282,12 +349,17 @@
   }, {passive:true});
 
   // ---------- label cycling ----------
+  const labelLayer = document.getElementById('labelLayer');
   const labelEls = [];
   MODULES.forEach(()=>{
     const el = document.createElement('div');
     el.className = 'module-label';
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    el.appendChild(document.createTextNode(''));
+    el.appendChild(bar);
     document.body.appendChild(el);
-    labelEls.push(el);
+    labelEls.push({el, bar, textNode:el.firstChild});
   });
   let activeLabel = -1;
   let labelTimer = 0;
@@ -297,130 +369,213 @@
     labelTimer += dt;
     if(labelTimer > LABEL_INTERVAL){
       labelTimer = 0;
-      if(activeLabel >= 0) labelEls[activeLabel].style.opacity = 0;
+      if(activeLabel >= 0) labelEls[activeLabel].el.style.opacity = 0;
       activeLabel = (activeLabel + 1) % leafNodes.length;
       const leaf = leafNodes[activeLabel];
-      const screenX = cx + leaf.pt.x*scale;
-      const screenY = cy + leaf.pt.y*scale;
-      const el = labelEls[activeLabel];
+      const screenX = clamp(cx + leaf.pt.x*scale, 56, W-56);
+      const screenY = clamp(cy + leaf.pt.y*scale, 92, H-140);
+      const { el, bar, textNode } = labelEls[activeLabel];
+      textNode.nodeValue = leaf.label;
+      bar.style.background = `rgb(${leaf.rgb})`;
+      bar.style.color = `rgb(${leaf.rgb})`;
       el.style.left = screenX + 'px';
       el.style.top = screenY + 'px';
-      el.style.transform = 'translate(-50%, -140%)';
+      el.style.transform = 'translate(-50%, -150%)';
       el.style.opacity = 0;
       requestAnimationFrame(()=>{ el.style.opacity = 1; });
       setTimeout(()=>{ if(activeLabel < labelEls.length) el.style.opacity = 0; }, LABEL_INTERVAL - 300);
     }
   }
 
+  // ---------- drawing helpers ----------
+  // c = target context; glow = true draws the bright variant (composited to
+  // the glow layer once and blurred as a whole, rather than per-shape blur
+  // which is far too expensive to run every frame).
+  function drawBranches(c, glow){
+    branches.forEach(b=>{
+      const pts = b.points;
+      for(let i=0;i<pts.length-1;i++){
+        const a = pts[i], p1 = pts[i+1];
+        const ax = cx + a.x*baseScale, ay = cy + a.y*baseScale;
+        const bx = cx + p1.x*baseScale, by = cy + p1.y*baseScale;
+        const alpha = Math.max(0.05, 0.42 - i*0.05);
+        const width = Math.max(0.6, 2.5 - i*0.28);
+        c.beginPath();
+        c.strokeStyle = glow
+          ? `rgba(${b.rgb},${alpha*0.9})`
+          : `rgba(${b.rgb},${alpha})`;
+        c.lineWidth = glow ? width*2.2 : width;
+        c.moveTo(ax,ay);
+        c.lineTo(bx,by);
+        c.stroke();
+      }
+    });
+  }
+
+  function drawNodes(c, glow){
+    allPoints.forEach(p=>{
+      const px = cx + p.x*baseScale, py = cy + p.y*baseScale;
+      const pulse = 0.5 + 0.5*Math.sin(elapsedGlobal*p.speed + p.phase);
+      const dist = Math.hypot(p.x,p.y);
+      const sizeFalloff = Math.max(0.35, 1 - dist/560);
+      const r = (1.2 + pulse*1.4) * sizeFalloff;
+      c.beginPath();
+      c.fillStyle = glow
+        ? `rgba(${p.rgb},${(0.45 + pulse*0.4)})`
+        : `rgba(230,232,255,${0.32 + pulse*0.45})`;
+      c.arc(px, py, glow ? Math.max(r*2.1,1) : Math.max(r,0.4), 0, TAU);
+      c.fill();
+    });
+  }
+
+  function drawParticles(c, glow){
+    particles.forEach(p=>{
+      const px = cx + p.pos.x*baseScale, py = cy + p.pos.y*baseScale;
+
+      if(!glow && p.trail.length > 1){
+        for(let i=1;i<p.trail.length;i++){
+          const t0 = p.trail[i-1], t1 = p.trail[i];
+          const a0 = cx + t0.x*baseScale, b0 = cy + t0.y*baseScale;
+          const a1 = cx + t1.x*baseScale, b1 = cy + t1.y*baseScale;
+          const alpha = (i/p.trail.length) * 0.45;
+          c.beginPath();
+          c.strokeStyle = `rgba(${p.rgb},${alpha})`;
+          c.lineWidth = p.isSpark ? 1.6 : 1.1;
+          c.moveTo(a0,b0);
+          c.lineTo(a1,b1);
+          c.stroke();
+        }
+      }
+
+      const size = p.isSpark ? 2.1 : 1.7;
+      c.beginPath();
+      c.fillStyle = glow ? `rgba(${p.rgb},0.85)` : `rgba(${p.rgb},0.95)`;
+      c.arc(px, py, glow ? size*2.3 : size, 0, TAU);
+      c.fill();
+    });
+  }
+
+  function drawCore(c, glow, ringT){
+    const corePulse = 0.5 + 0.5*Math.sin(elapsedGlobal*1.4);
+    const coreR = 10 + corePulse*5;
+
+    if(glow){
+      const grad = c.createRadialGradient(cx,cy,0,cx,cy,coreR*4.2);
+      grad.addColorStop(0, 'rgba(225,220,255,0.9)');
+      grad.addColorStop(0.35, 'rgba(140,123,255,0.5)');
+      grad.addColorStop(1, 'rgba(140,123,255,0)');
+      c.beginPath();
+      c.fillStyle = grad;
+      c.arc(cx, cy, coreR*4.2, 0, TAU);
+      c.fill();
+      return;
+    }
+
+    [0, 0.5].forEach(offset=>{
+      const t = (ringT + offset) % 1;
+      c.beginPath();
+      c.strokeStyle = `rgba(140,123,255,${(1-t)*0.38})`;
+      c.lineWidth = 1.2;
+      c.arc(cx, cy, coreR + t*90, 0, TAU);
+      c.stroke();
+    });
+
+    const grad = c.createRadialGradient(cx,cy,0,cx,cy,coreR*3.2);
+    grad.addColorStop(0, 'rgba(220,215,255,0.95)');
+    grad.addColorStop(0.35, 'rgba(140,123,255,0.55)');
+    grad.addColorStop(1, 'rgba(140,123,255,0)');
+    c.beginPath();
+    c.fillStyle = grad;
+    c.arc(cx, cy, coreR*3.2, 0, TAU);
+    c.fill();
+
+    c.beginPath();
+    c.fillStyle = 'rgba(255,255,255,0.95)';
+    c.arc(cx, cy, coreR*0.55, 0, TAU);
+    c.fill();
+  }
+
   // ---------- render loop ----------
   let last = performance.now();
   let t0 = last;
+  let elapsedGlobal = 0;
 
   function frame(now){
-    const dt = Math.min(now - last, 48);
+    const dt = Math.max(0, Math.min(now - last, 48));
     last = now;
-    const elapsed = (now - t0) / 1000;
+    elapsedGlobal = (now - t0) / 1000;
 
     mouseX = lerp(mouseX, targetX, 0.04);
     mouseY = lerp(mouseY, targetY, 0.04);
 
-    cx = W/2 + mouseX * 26;
-    cy = H*0.44 + mouseY * 20;
-    baseScale = Math.min(W,H) / 720;
+    cx = W/2 + mouseX * 28;
+    cy = H*0.43 + mouseY * 22;
+    const targetR = Math.min(W*0.42, H*0.34);
+    baseScale = targetR / MAX_LOCAL_RADIUS;
 
     // trailing fade
     ctx.fillStyle = 'rgba(5,5,10,0.22)';
     ctx.fillRect(0,0,W,H);
 
+    // nebula
+    ctx.globalCompositeOperation = 'lighter';
+    NEBULAE.forEach(n=>{
+      const nx = W*n.xf + Math.sin(elapsedGlobal*n.speed + n.ph)*n.amp;
+      const ny = H*n.yf + Math.cos(elapsedGlobal*n.speed*0.8 + n.ph)*n.amp;
+      const r = Math.max(W,H)*n.rf;
+      const grad = ctx.createRadialGradient(nx,ny,0,nx,ny,r);
+      grad.addColorStop(0, `rgba(${n.rgb},0.10)`);
+      grad.addColorStop(1, `rgba(${n.rgb},0)`);
+      ctx.beginPath();
+      ctx.fillStyle = grad;
+      ctx.arc(nx, ny, r, 0, TAU);
+      ctx.fill();
+    });
+    ctx.globalCompositeOperation = 'source-over';
+
     // stars
-    stars.forEach(s=>{
-      const tw = 0.35 + 0.65*Math.abs(Math.sin(elapsed*s.speed + s.phase));
-      ctx.beginPath();
-      ctx.fillStyle = `rgba(230,234,255,${0.15+tw*0.5})`;
-      ctx.arc(s.x, s.y, s.r, 0, TAU);
-      ctx.fill();
-    });
-
-    // branch lines
-    branches.forEach(b=>{
-      const pts = b.points;
-      for(let i=0;i<pts.length-1;i++){
-        const a = pts[i], c = pts[i+1];
-        const ax = cx + a.x*baseScale, ay = cy + a.y*baseScale;
-        const bx = cx + c.x*baseScale, by = cy + c.y*baseScale;
-        const alpha = Math.max(0.06, 0.34 - i*0.045);
-        const width = Math.max(0.5, 2.1 - i*0.28);
+    [starsFar, starsNear].forEach(layer=>{
+      layer.forEach(s=>{
+        const tw = 0.35 + 0.65*Math.abs(Math.sin(elapsedGlobal*s.speed + s.phase));
+        const sx = s.x + mouseX*s.parallax;
+        const sy = s.y + mouseY*s.parallax;
         ctx.beginPath();
-        ctx.strokeStyle = `rgba(91,125,255,${alpha})`;
-        ctx.lineWidth = width;
-        ctx.moveTo(ax,ay);
-        ctx.lineTo(bx,by);
-        ctx.stroke();
-      }
+        ctx.fillStyle = `rgba(230,234,255,${0.15+tw*0.5})`;
+        ctx.arc(sx, sy, s.r, 0, TAU);
+        ctx.fill();
+      });
     });
 
-    // node glow points
-    allPoints.forEach(p=>{
-      const px = cx + p.x*baseScale, py = cy + p.y*baseScale;
-      const pulse = 0.5 + 0.5*Math.sin(elapsed*p.speed + p.phase);
-      const dist = Math.hypot(p.x,p.y);
-      const sizeFalloff = Math.max(0.35, 1 - dist/520);
-      const r = (1.1 + pulse*1.3) * sizeFalloff;
-      ctx.beginPath();
-      ctx.fillStyle = `rgba(200,210,255,${0.28 + pulse*0.4})`;
-      ctx.shadowColor = 'rgba(140,123,255,0.9)';
-      ctx.shadowBlur = 6 + pulse*6;
-      ctx.arc(px, py, Math.max(r,0.4), 0, TAU);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    });
+    const ringT = (elapsedGlobal*0.35) % 1;
 
-    // traveling particles
+    // advance particle state once per frame
     particles.forEach(p=>{
       p.t += p.speed * (dt/1000) * 1.6;
-      if(p.t >= p.path.length-1){
-        Object.assign(p, spawnParticle());
-      }
-      const pos = pointAt(p.path, p.t);
-      const px = cx + pos.x*baseScale, py = cy + pos.y*baseScale;
-      const color = p.hue === 'synapse' ? '82,232,208' : '140,123,255';
-      ctx.beginPath();
-      ctx.fillStyle = `rgba(${color},0.95)`;
-      ctx.shadowColor = `rgba(${color},1)`;
-      ctx.shadowBlur = 10;
-      ctx.arc(px, py, 1.7, 0, TAU);
-      ctx.fill();
-      ctx.shadowBlur = 0;
+      if(p.t >= p.path.length-1){ Object.assign(p, spawnParticle()); }
+      p.pos = pointAt(p.path, p.t);
+      p.trail.push({x:p.pos.x, y:p.pos.y});
+      if(p.trail.length > 6) p.trail.shift();
     });
 
-    // core
-    const corePulse = 0.5 + 0.5*Math.sin(elapsed*1.4);
-    const coreR = 9 + corePulse*4;
+    // ---- glow layer: draw bright shapes once, blur the whole layer once ----
+    glowCtx.clearRect(0,0,W,H);
+    glowCtx.globalCompositeOperation = 'lighter';
+    drawBranches(glowCtx, true);
+    drawNodes(glowCtx, true);
+    drawParticles(glowCtx, true);
+    drawCore(glowCtx, true, ringT);
 
-    // sonar rings
-    const ringT = (elapsed*0.35) % 1;
-    ctx.beginPath();
-    ctx.strokeStyle = `rgba(140,123,255,${(1-ringT)*0.35})`;
-    ctx.lineWidth = 1.2;
-    ctx.arc(cx, cy, coreR + ringT*70, 0, TAU);
-    ctx.stroke();
+    ctx.save();
+    ctx.filter = 'blur(10px)';
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(glowCanvas, 0, 0, W, H);
+    ctx.restore();
 
-    const grad = ctx.createRadialGradient(cx,cy,0,cx,cy,coreR*3.2);
-    grad.addColorStop(0, 'rgba(220,215,255,0.95)');
-    grad.addColorStop(0.35, 'rgba(140,123,255,0.55)');
-    grad.addColorStop(1, 'rgba(140,123,255,0)');
-    ctx.beginPath();
-    ctx.fillStyle = grad;
-    ctx.arc(cx, cy, coreR*3.2, 0, TAU);
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.fillStyle = 'rgba(255,255,255,0.95)';
-    ctx.shadowColor = 'rgba(180,170,255,1)';
-    ctx.shadowBlur = 18;
-    ctx.arc(cx, cy, coreR*0.55, 0, TAU);
-    ctx.fill();
-    ctx.shadowBlur = 0;
+    // ---- crisp pass ----
+    drawBranches(ctx, false);
+    drawNodes(ctx, false);
+    drawParticles(ctx, false);
+    drawCore(ctx, false, ringT);
 
     updateLabels(dt, baseScale);
 
